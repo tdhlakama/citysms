@@ -1,0 +1,298 @@
+<?php
+/////////////////////////////////////////////////////////////
+// CHANGE HISTORY
+// The variables set at the end of this comment must be modified as follows:
+//
+// $uname = USERNAME eg: $uname = "USERNAME.12345";
+// $pw = PASSWORD eg: $pw = "QWERTYU.POIUYT";
+// $pin = PIN number eg: $pin = "12345678";
+//
+// $uploaddir = UPLOAD DIRECTORY FOR MMS images eg $uploaddir = "uploads/";
+//	 ***NOTE - this path must be set world writable in your server directory (ie, chmod 777)
+//
+// $max_size = MAXIMUM SIZE OF MMS IMAGE IN BYTES eg: $max_size = 10240; (max size is set to 10kb)
+//
+//
+// This script should be saved as 'index.php' in a directory of your choice
+// A subdirectory should also exist for MMS uploads (see note above)
+//
+// MMS content has been limited to JPEG or GIF files, but this could be changed by altering the $userfile_type
+// conditions in the 'sendmms' ToDo below
+
+$uname = "another.12345";
+$pin = "12345678";
+$uploaddir = "uploads/";
+$uploaddir = '/var/www/uploads/';
+$max_size = 102400;
+#
+############################################################
+# do we want debug ?
+$debug=1;
+# do we want to use HTTPS for a secure connection?
+$secure=1;
+############################################################
+# $pfile contains the name of this script
+$file = $_SERVER["SCRIPT_NAME"];
+$break = Explode('/', $file);
+$pfile = $break[count($break) - 1];
+#
+if ($debug) 
+	{
+	if (! file_exists("/tmp" )) { mkdir("/tmp", 0777); }
+	$myFile = "/tmp/" . $pfile . ".log";
+	$fh_debug = fopen($myFile, 'a') or die("can't open file");
+	fwrite($fh_debug, "\n\n" . $pfile . "\n". date("j F Y G:i:s") . "\n");
+	@chmod($myFile,0666);
+	}	    
+############################################################
+# Function definitions
+############################################################
+function http_post($vars)
+	{
+	global $debug, $fh_debug, $secure;
+	if($secure)
+		{
+		$urlencoded = "";
+		while (list($key, $value) = each($vars))
+			{
+			$urlencoded.= urlencode($key)."=".$value."&";
+			}
+		$urlencoded = substr($urlencoded, 0, -1);
+	
+		if ($debug)  {fwrite($fh_debug, "\nFirst 100 chars of URLENCODED=" . substr($urlencoded,0,100) . "\n");}
+	
+
+		$url = "https://www.csoft.co.uk/webservices/http/sendsms";
+		$ch = curl_init();    // initialize curl handle
+		curl_setopt($ch, CURLOPT_URL,$url); // set url to post to
+		curl_setopt($ch, CURLOPT_FAILONERROR, 1);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER,1); // return into a variable
+		curl_setopt($ch, CURLOPT_TIMEOUT, 5); // times out after 5s
+		curl_setopt($ch, CURLOPT_POST, 1); // set POST method
+		curl_setopt($ch, CURLOPT_POSTFIELDS, $urlencoded); // add POST fields
+		$result = curl_exec($ch); // run the whole process
+		curl_close($ch); 
+		return $result;
+		}
+
+	else	{
+		$server1="www.csoft.co.uk";
+		$server2="www2.csoft.co.uk";
+		$port=80;
+		if ($debug)  {fwrite($fh_debug, "PORT=" . $port . "  SERVER=" . $server1 . "\n");}
+		# note that the sendsms web service is actually the same as the sendmms service...
+		$url= "/webservices/http/sendsms" ;
+		$user_agent = "Mozilla/4.0 (compatible; MSIE 5.5; Windows 98)";
+		#
+		$urlencoded = "";
+		while (list($key, $value) = each($vars))
+			{
+			$urlencoded.= urlencode($key)."=".$value."&";
+			}
+		$urlencoded = substr($urlencoded, 0, -1);
+	
+		if ($debug)  {fwrite($fh_debug, "\nFirst 100 chars of URLENCODED=" . substr($urlencoded,0,100) . "\n");}
+	
+		$content_length = strlen($urlencoded);
+	
+		$headers  = "POST $url HTTP/1.1\n";
+		$headers .= "Accept: */*\n";
+		$headers .= "Accept-Langauge: en-au\n";
+		$headers .= "Content-Type: application/x-www-form-urlencoded\n";
+		$headers .= "User-Agent: $user_agent\n";
+		$headers .= "Host: $server\n";
+		$headers .= "Connection: close\n";
+		$headers .= "Cache-Control: no-cache\n";
+		$headers .= "Content-Length: $content_length\n\n";
+	
+		if ($debug)  { fwrite($fh_debug, "\nHEADERS=" . $headers . "\n"); }
+	
+		# attempt to open connection to server - with failover
+	
+		$fp = @fsockopen($server1, $port, $errno, $errstr,5);
+		if ($fp)
+			{
+			$report= "server1 opened OK\n";
+			if ($debug)  {fwrite($fh_debug, $report . "\n");}
+			}
+		else
+			{
+			$report= "server1 failed, trying server2\n";
+			if ($debug)  {fwrite($fh_debug, $report . "\n");}
+		
+			$fp = @fsockopen($server2, $port, $errno, $errstr,10);
+			if (!$fp)
+				{
+				$report= "server2 failed as well\n";
+				if ($debug)  {fwrite($fh_debug, $report . "\n");}
+				return false;
+				}
+			else
+				{
+				$report= "server2 openened OK\n";
+				if ($debug)  {fwrite($fh_debug, $report . "\n");}
+				}
+			}
+	
+		fputs($fp, $headers);
+		fputs($fp, $urlencoded);
+	
+		$ret = "";
+		while (!feof($fp))
+			{
+			$ret.=fgets($fp, 1024);
+			}
+		fclose($fp);
+		return $ret;
+		}
+	}
+##############################
+function ascii_convert($text)
+	{
+	$text = str_replace(' ', '___SPACE___', $text);
+	$text = urlencode($text);
+	$text = str_replace('___SPACE___', '%20', $text);
+	return $text;
+	}
+############################################################
+# generate the HTML - dependent on parameters passed
+
+echo "<html><head><title>iSend SMS or MMS using HTTP connection</title>";
+echo "<body bgcolor=\"#ffffff\" marginheight=\"7\" topmargin=\"7\" marginwidth=\"7\" leftmargin=\"7\" style=\"margin:7px\">";
+echo "Software version dated 2008-05-28<br><br>";
+
+$ToDo=$_REQUEST['ToDo'];
+
+if ($ToDo == "")
+	{
+	if ($debug) 	{ fwrite($fh_debug, "ToDo=" . $ToDo . "\n"); }
+	echo "Please choose an option from the list below:<br><br>";
+	echo "<li><a href=\"index.php?ToDo=sms\">Send SMS message</a>";
+	echo "<li><a href=\"index.php?ToDo=mms\">Send MMS message</a>";
+	echo "<br><br>";
+	}
+
+
+elseif ($ToDo == "sms")
+	{
+	if ($debug) 	{ fwrite($fh_debug, "ToDo=" . $ToDo . "\n"); }
+	echo "Please fill in the form below to send your message:<br><br>";
+	echo "<form name=\"sms\" method=\"post\" ToDo=\"index.php\">";
+	echo "<input type=\"hidden\" name=\"ToDo\" value=\"sendsms\">";
+	echo "Full International Format Mobile/Cell Phone Number (i.e. 447700912345):<br>";
+	echo "<input type=\"text\" name=\"phone\" size=\"20\">";
+	echo "<br><br>Message:<br>";
+	echo "<textarea name=\"message\" rows=\"8\" cols=\"40\"></textarea>";
+	echo "<br><br>";
+	echo "<input type=\"reset\" value=\"clear\">&nbsp;&nbsp;|&nbsp;&nbsp;<input type=\"submit\" value=\"send\">";
+	echo "</form>";
+	}
+
+elseif ($ToDo == "sendsms")
+	{
+	if ($debug) 	{ fwrite($fh_debug, "ToDo=" . $ToDo . "\n"); }
+	$message=$_REQUEST['message'];
+	$phone=$_REQUEST['phone'];
+	$message = stripslashes($message);
+	$message = ascii_convert($message);
+	if ($debug) 	{ fwrite($fh_debug,"MESSAGE=" . $message . "\n");}
+
+	$sending = http_post(array("Username" => $uname, "PIN" => $pin, "SendTo" => $phone, "Message" => $message));
+	if ($debug) 	{ fwrite($fh_debug, "SENDING=" .$sending . "\n");}
+
+	echo "Please choose an option from the list below:<br><br>";
+	echo "<li><a href=\"index.php?ToDo=sms\">Send SMS message</a>";
+	echo "<li><a href=\"index.php?ToDo=mms\">Send MMS message</a>";
+	echo "<br><br>";
+	}
+
+
+
+elseif ($ToDo == "mms")
+	{
+	if ($debug) 	{ fwrite($fh_debug, "ToDo=" . $ToDo . "\n"); }
+	echo "Please fill in the form below to send your message:<br><br>";
+	echo "<form enctype=\"multipart/form-data\" ToDo=\"index.php\" method=\"post\">";
+	echo "<input type=\"hidden\" name=\"ToDo\" value=\"sendmms\">";
+	echo "Full International Format Mobile/Cell Phone Number (i.e 447700912345):<br>";
+	echo "<input type=\"text\" name=\"phone\" size=\"20\">";
+	echo "<br><br><b>Image:</b> <input name=\"userfile\" type=\"file\">";
+	echo "<br><br>Message:<br>";
+	echo "<textarea name=\"message\" rows=\"4\" cols=\"50\"></textarea>";
+	echo "<br><br><br>";
+	echo "<input type=\"reset\" value=\"clear\">&nbsp;&nbsp;|&nbsp;&nbsp;<input type=\"submit\" value=\"send\">";
+	}
+
+elseif ($ToDo == "sendmms")
+	{
+	if ($debug) 	{ fwrite($fh_debug, "ToDo=" . $ToDo . "\n"); }
+	$message=$_REQUEST['message'];
+	$phone=$_REQUEST['phone'];
+	$userfile_name=basename($_FILES['userfile']['name']);
+	$userfile_tmp=$_FILES['userfile']['tmp_name'];
+	$userfile=$uploaddir . basename($_FILES['userfile']['name']);
+	$userfile_size=$_FILES['userfile']['size'];
+	$userfile_type=$_FILES['userfile']['type'];
+	if ($debug) 	{ fwrite($fh_debug, "UPLOADFILE=". $userfile . "    USERFILE_TMP=". $userfile_tmp . "   USERFILE_SIZE=". $userfile_size . "   USERFILETYPE=" . $userfile_type . "\n"); }
+	#
+	if (is_uploaded_file($_FILES['userfile']['tmp_name']))
+		{
+		if ($debug) 	{ fwrite($fh_debug, "MMS file was uploaded\n"); }
+		if ($userfile_size > $max_size)
+			{
+			if ($debug) 	{ fwrite($fh_debug, "MMS file is too big at ". $userfile_size . " bytes\n"); }
+			echo "The file is too big.  Please click back to try again with a smaller image.<br><br>";
+			exit;
+			}
+
+		if ( ! (($userfile_type == "image/gif") || ($userfile_type == "image/jpeg") || ($userfile_type == "image/jpg") || ($userfile_type == "image/pjpeg")))
+			{
+			if ($debug) 	{ fwrite($fh_debug, "MMS file type invalid\n"); }
+			echo "Sorry.  Your file needs to be either a .gif or .jpg file.  Please click back to try again.<br>\n</td></tr>";
+			exit;
+			}
+		else
+			{
+			if (! move_uploaded_file($_FILES['userfile']['tmp_name'], $userfile))
+				{
+				if ($debug) 	{ fwrite($fh_debug, "Failed to move MMS file\n"); }
+				echo "Sorry.  The upload failed.  Please click back to try again.<br><br>";
+				exit;
+				}
+			else
+				{
+				if ($debug) 	{ fwrite($fh_debug, "MMS file upload OK\n"); }
+				if ($debug) 	{ fwrite($fh_debug, "Username=" . $uname . "\n"); }
+				if ($debug) 	{ fwrite($fh_debug, "PIN=" . $pin . "\n"); }
+				if ($debug) 	{ fwrite($fh_debug, "SendTo=" . $phone . "\n"); }
+				if ($debug) 	{ fwrite($fh_debug, "Message=" . $message . "\n"); }
+				if ($debug) 	{ fwrite($fh_debug, "WAPPushFileName1=" . $userfile_name  ."\n"); }
+				echo "File <b>$userfile_name</b> uploaded successfully.  Thank you.<br><br>";
+				$success = "yes";
+				$filehandle = fopen("$userfile", "r");
+				$data = fread($filehandle, filesize($userfile));
+				fclose ($filehandle);
+				$data = bin2hex($data);
+				$message = stripslashes($message);
+				$message = ascii_convert($message);
+				$sending = http_post(array("Username" => $uname, "PIN" => $pin, "SendTo" => $phone, "Message" => $message, "WAPPushFileName1" => $userfile_name, "WAPPushFileData1" => $data));
+				$delete = @unlink($userfile);
+				if ($debug) 	{ fwrite($fh_debug, "Result=" . $sending . "\n"); }
+				}
+			}
+		}
+	else
+		{
+		if ($debug) 	{ fwrite($fh_debug, "MMS file was NOT uploaded\n"); }
+		}
+	}
+else
+	{
+	# we should never get here...
+	if ($debug) 	{ fwrite($fh_debug, "Invalid - ToDo=" . $ToDo . "\n"); }
+	}
+
+fclose($fh_debug);   
+?>
+
+
